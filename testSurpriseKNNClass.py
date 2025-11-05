@@ -48,10 +48,17 @@ def precision_recall_at_n(predictions, n=10, threshold=3.5):
     return precisions, recalls
 
 
+# FUNCIÓN EDITADA DEL PROGRAMA PRINCIPAL PARA QUE TRABAJE CON LA DATABASE QUE NOS PROPORCIONAN
 def load_csv():
     # # Dataset Load
 
     # In[2]:
+
+    # import csv file in python
+    # >>> CAMBIO MÍNIMO: cargar MovieLens 100k desde data/ml-100k/u.data con Surprise <<<
+    reader = Reader(line_format='user item rating timestamp', sep='\t')
+    data = Dataset.load_from_file('data/ml-100k/u.data', reader=reader)
+    return data
 
     # import csv file in python
     csv_file = pd.read_csv('data.csv', delimiter=';')
@@ -105,19 +112,27 @@ def load_csv():
     return Dataset.load_from_df(df[['userID', 'itemID', 'rating']], reader)
 
 
-# load ratings from csv
+# -------------------
+# MAIN PROGRAM
 
+# Loading of the dataset
 data = load_csv()
 
 # Dataset splitting in trainset and testset for 25% sparsity
-
-trainset25, testset25 = train_test_split(data, test_size=.25,
-                                         random_state=22)
+trainset25, testset25 = train_test_split(data, test_size=.25, random_state=22)
 
 sim_options_KNN = {'name': "pearson",
                    'user_based': True  # compute similarities between users
                    }
-# number of neighbors
+
+# NUMBER OF NEIGHTBOURS
+k = 0
+
+# FIRST EXERCISE:
+# A) Find out the value for K that minimizes the MAE with 25% of missing ratings.
+# B) Sparsity Problem: find out the value for K that minimizes the MAE with 75% of missing ratings.
+
+# WE MUST EDIT K TO BOTH EXERCISES
 k = 10
 
 # prepare user-based KNN for predicting ratings from trainset25
