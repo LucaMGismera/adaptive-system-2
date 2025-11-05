@@ -1,2 +1,2 @@
 # adaptive-system-2
-Second submission for Adapttive Systems
+Second submission for Adaptive Systems
