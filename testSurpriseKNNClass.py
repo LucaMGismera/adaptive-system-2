@@ -12,6 +12,9 @@ from surprise.model_selection import train_test_split
 # Load the movielens-100k dataset (download it if needed).
 # data = Dataset.load_builtin('ml-100k')
 
+#receive the prediction of Surprise,
+# n -> items recommended per user
+# threshold -> rating considered relevant
 def precision_recall_at_n(predictions, n=10, threshold=3.5):
     """Return precision and recall at n metrics for each user"""
 
@@ -60,102 +63,47 @@ def load_csv():
     data = Dataset.load_from_file('data/ml-100k/u.data', reader=reader)
     return data
 
-    # import csv file in python
-    csv_file = pd.read_csv('data.csv', delimiter=';')
-
-    # conversion of the table in a numpy matrix with only ratings
-    # method .to_numpy() does not copy the header row
-    # np.delete deletes the first column
-
-    temp = np.delete(csv_file.to_numpy(), np.s_[0], axis=1)
-
-    # Matrix is converted in User-Movies from Movies-User
-    # Later, the matrix is flatten to a vector of values.
-    # For each user, all the movie ratings are reported
-    # user1item1, user1item2, user1item3,...
-
-    ratings = temp.T.flatten()
-
-    # Vectors users and movies are the corresponding columns in the dataframne.
-    # As the ratings are ordered user1[allratings], user2[allratings], ...
-    # the user and movies vectors follow the same logic
-
-    i = 0
-    j = 0
-    users = []
-    movies = []
-    users.clear()
-    movies.clear()
-    while i < 50:
-        while j < 20:
-            movies.append(j)
-            users.append(i)
-            j += 1
-        j = 0
-        i += 1
-
-    movies = np.array(movies)
-    users = np.array(users)
-
-    # The user, movies, and rating numpy vectors are converted in a rating dictionary
-    # and later, in a Pandas dataframe
-
-    ratings_dict = {'userID': users,
-                    'itemID': movies,
-                    'rating': ratings}
-
-    df = pd.DataFrame(ratings_dict)
-
-    # The dataframes are converted into a dataset suitable for Surprise
-
-    reader = Reader(rating_scale=(1, 5))
-    return Dataset.load_from_df(df[['userID', 'itemID', 'rating']], reader)
-
-
 # -------------------
 # MAIN PROGRAM
 
 # Loading of the dataset
 data = load_csv()
-
-# Dataset splitting in trainset and testset for 25% sparsity
-trainset25, testset25 = train_test_split(data, test_size=.25, random_state=22)
+#
+# # Dataset splitting in trainset and testset for 25% sparsity
+# trainset25, testset25 = train_test_split(data, test_size=.25, random_state=22)
 
 sim_options_KNN = {'name': "pearson",
                    'user_based': True  # compute similarities between users
                    }
 
-# NUMBER OF NEIGHTBOURS
-k = 0
-
 # FIRST EXERCISE:
 # A) Find out the value for K that minimizes the MAE with 25% of missing ratings.
 # B) Sparsity Problem: find out the value for K that minimizes the MAE with 75% of missing ratings.
 
-# WE MUST EDIT K TO BOTH EXERCISES
-k = 10
+def evaluate_ks(data, test_size, ks):
+    """Devuelve lista [(k, mae_k), ...] para un cierto porcentaje de test."""
+    trainset, testset = train_test_split(data, test_size=test_size, random_state=22)
+    resultados = []
 
-# prepare user-based KNN for predicting ratings from trainset25
-algo = KNNWithMeans(k, sim_options=sim_options_KNN, verbose=False)
-algo.fit(trainset25)
+    for k in ks:
+        algo = KNNWithMeans(k=k, sim_options=sim_options_KNN, verbose=False)
+        algo.fit(trainset)
+        preds = algo.test(testset)
+        m = mae(preds, verbose=False)  # verbose=False para que no imprima cada vez
+        resultados.append((k, m))
+        print(f"test_size={test_size}, k={k}, MAE={m:.4f}")
 
-# estimate the ratings for all the pairs (user, item) in testset25
-predictions25KNN = algo.test(testset25)
+    return resultados
 
-pprint(predictions25KNN)
 
-# the first user has uid=0 and first item iid=0
-for (uid, iid, real, est, _) in predictions25KNN:
-    if uid == 0:
-        print(f'{uid} {iid} {real} {est}')
+ks = [2, 5, 10, 15, 20]
 
-mae(predictions25KNN)
+# --- a) 25% missing ratings (test_size = 0.25) ---
+resultados_25 = evaluate_ks(data, test_size=0.25, ks=ks)
+best_k_25, best_mae_25 = min(resultados_25, key=lambda x: x[1])
+print(f"\nMejor K para 25% missing: K={best_k_25}, MAE={best_mae_25:.4f}")
 
-precisions, recalls = precision_recall_at_n(predictions25KNN, n=5, threshold=4)
-
-# Precision and recall can then be averaged over all users
-pre = sum(prec for prec in precisions.values()) / len(precisions)
-recall = sum(rec for rec in recalls.values()) / len(recalls)
-print("Precision:", pre)
-print("Recall:", recall)
-print("F1:", 2*pre*recall/(pre+recall))
+# --- b) 75% missing ratings (test_size = 0.75) ---
+resultados_75 = evaluate_ks(data, test_size=0.75, ks=ks)
+best_k_75, best_mae_75 = min(resultados_75, key=lambda x: x[1])
+print(f"\nBest K for 75% missing: K={best_k_75}, MAE={best_mae_75:.4f}")
