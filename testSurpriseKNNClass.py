@@ -9,12 +9,15 @@ from surprise.accuracy import mae
 from surprise.model_selection import train_test_split
 
 
-# Load the movielens-100k dataset (download it if needed).
-# data = Dataset.load_builtin('ml-100k')
-
-#receive the prediction of Surprise,
-# n -> items recommended per user
-# threshold -> rating considered relevant
+# --------------------------------------------------------------------
+# - Recibe la lista de predicciones de Surprise (uid, iid, true_r, est, details)
+# - n: número de ítems recomendados por usuario (Top-N)
+# - threshold: a partir de qué rating consideramos que un ítem es relevante
+#              (en el enunciado: ratings 4 o 5 → threshold = 4.0)
+# - Devuelve dos diccionarios:
+#       precisions[uid] = precisión@N de ese usuario
+#       recalls[uid]    = recall@N de ese usuario
+# --------------------------------------------------------------------
 def precision_recall_at_n(predictions, n=10, threshold=3.5):
     """Return precision and recall at n metrics for each user"""
 
@@ -58,17 +61,10 @@ def load_csv():
     # In[2]:
 
     # import csv file in python
-    # >>> CAMBIO MÍNIMO: cargar MovieLens 100k desde data/ml-100k/u.data con Surprise <<<
     reader = Reader(line_format='user item rating timestamp', sep='\t')
     data = Dataset.load_from_file('data/ml-100k/u.data', reader=reader)
     return data
 
-# -------------------
-# MAIN PROGRAM
-
-# Loading of the dataset
-data = load_csv()
-#
 # # Dataset splitting in trainset and testset for 25% sparsity
 # trainset25, testset25 = train_test_split(data, test_size=.25, random_state=22)
 
@@ -86,16 +82,56 @@ def evaluate_ks(data, test_size, ks):
     resultados = []
 
     for k in ks:
+        # Crear algoritmo KNNWithMeans con ese k
         algo = KNNWithMeans(k=k, sim_options=sim_options_KNN, verbose=False)
+        # Entrenar con el conjunto de entrenamiento
         algo.fit(trainset)
+        # Predecir ratings del conjunto de test
         preds = algo.test(testset)
-        m = mae(preds, verbose=False)  # verbose=False para que no imprima cada vez
+        # Calcular MAE sobre las predicciones
+        m = mae(preds, verbose=False)
         resultados.append((k, m))
-        print(f"test_size={test_size}, k={k}, MAE={m:.4f}")
+        print(f"[KNN] test_size={test_size}, k={k}, MAE={m:.4f}")
+    return resultados
+
+# --------------------------------------------------------------------
+# A partir de una lista de predicciones (preds), calcula la media de
+# precisión, recall y F1 para una lista de valores de N (n_values).
+# Devuelve una lista:
+#   [(N, precision_media, recall_media, F1_media), ...]
+# --------------------------------------------------------------------
+def topn_metrics(predictions, n_values, threshold=4.0):
+    resultados = []
+
+    for n in n_values:
+        # Calculamos precisión y recall por usuario para este N
+        precisions, recalls = precision_recall_at_n(predictions, n=n, threshold=threshold)
+
+        # Media de precisión sobre todos los usuarios
+        mean_prec = sum(precisions.values()) / len(precisions)
+
+        # Media de recall sobre todos los usuarios
+        mean_rec = sum(recalls.values()) / len(recalls)
+
+        # F1 = 2 * (P * R) / (P + R). Si P+R = 0, definimos F1 = 0 para evitar división por cero.
+        if (mean_prec + mean_rec) > 0:
+            f1 = 2 * mean_prec * mean_rec / (mean_prec + mean_rec)
+        else:
+            f1 = 0.0
+
+        print(f"N={n:3d} | Precision={mean_prec:.4f} | Recall={mean_rec:.4f} | F1={f1:.4f}")
+
+        resultados.append((n, mean_prec, mean_rec, f1))
 
     return resultados
 
+# -------------------
+# MAIN PROGRAM
 
+# Loading of the dataset
+data = load_csv()
+
+# 2) Definir valores de K a probar para MAE
 ks = [2, 5, 10, 15, 20]
 
 # --- a) 25% missing ratings (test_size = 0.25) ---
@@ -107,3 +143,42 @@ print(f"\nMejor K para 25% missing: K={best_k_25}, MAE={best_mae_25:.4f}")
 resultados_75 = evaluate_ks(data, test_size=0.75, ks=ks)
 best_k_75, best_mae_75 = min(resultados_75, key=lambda x: x[1])
 print(f"\nBest K for 75% missing: K={best_k_75}, MAE={best_mae_75:.4f}")
+
+# -----------------------------------------------------------
+# PARTE 3: Top-N metrics (Precision, Recall, F1) para K-NN
+#          con los mejores K, y N = 10..100
+# -----------------------------------------------------------
+
+# Valores de N (Top-N) que queremos evaluar: 10,20,...,100
+n_values = list(range(10, 101, 10))
+
+# ------------------------------
+# 3A) Caso 25% missing (K = best_k_25)
+# ------------------------------
+# Volvemos a hacer el split con el mismo random_state para reproducir el mismo escenario
+trainset25, testset25 = train_test_split(data, test_size=0.25, random_state=22)
+
+# Creamos el modelo KNNWithMeans con el mejor K encontrado para este caso
+algo_knn_25 = KNNWithMeans(k=best_k_25, sim_options=sim_options_KNN, verbose=False)
+algo_knn_25.fit(trainset25)
+
+# Obtenemos predicciones sobre el conjunto de test
+preds_25 = algo_knn_25.test(testset25)
+
+print("\n========== K-NN Top-N metrics (25% missing) ==========")
+print(f"Usando K = {best_k_25} y threshold de relevancia = 4.0 (ratings 4 o 5)\n")
+resultados_topn_25 = topn_metrics(preds_25, n_values, threshold=4.0)
+
+# ------------------------------
+# 3B) Caso 75% missing (K = best_k_75)
+# ------------------------------
+trainset75, testset75 = train_test_split(data, test_size=0.75, random_state=22)
+
+algo_knn_75 = KNNWithMeans(k=best_k_75, sim_options=sim_options_KNN, verbose=False)
+algo_knn_75.fit(trainset75)
+
+preds_75 = algo_knn_75.test(testset75)
+
+print("\n========== K-NN Top-N metrics (75% missing) ==========")
+print(f"Usando K = {best_k_75} y threshold de relevancia = 4.0 (ratings 4 o 5)\n")
+resultados_topn_75 = topn_metrics(preds_75, n_values, threshold=4.0)
